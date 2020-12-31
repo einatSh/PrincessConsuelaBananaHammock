@@ -6,7 +6,7 @@ from socket import *
 import struct
 import time
 import threading
-import scapy
+# import scapy.all as scapy
 import asyncio
 from typing import Tuple
 
@@ -35,7 +35,7 @@ class Server:
         # TODO: delete 2 line below
         self.__temp_port = 12000
         self.__udp_port = self.__temp_port
-        self.set_env()
+        # self.set_env()
 
     def reset(self):
         self.__serverUDPSocket = socket(AF_INET, SOCK_DGRAM)
@@ -62,13 +62,12 @@ class Server:
             if env == "dev":
                 self.__serverName = get_if_addr('172.1.0/24')
                 # self.__serverName = '172.1.0/24'
-                print(self.__serverName)
-                self.__con_msg = "Server started, listening on IP address " + Color.PINK + '172.1.0/24' + Color.BLUE + "..."
+                # self.__con_msg = "Server started, listening on IP address " + Color.PINK + '172.1.0/24' + Color.BLUE + "..."
                 break
             elif env == "test":
                 self.__serverName = get_if_addr('172.99.0/24')
                 # self.__serverName = '172.99.0/24'
-                self.__con_msg = "Server started, listening on IP address " + Color.PINK + '172.99.0/24' + Color.BLUE + "..."
+                # self.__con_msg = "Server started, listening on IP address " + Color.PINK + '172.99.0/24' + Color.BLUE + "..."
                 break
             else:
                 print(Color.BR_RED + "Wrong input dummy -_-" + Color.END_C)
@@ -100,6 +99,7 @@ class Server:
         group_num = random.randint(0, 1)
         self.__groups_lock.acquire()
         self.__groups[group_num].append(client_name)
+        print( self.__groups)
         self.__groups_lock.release()
 
     def UDP_broadcast(self, startTime, msg):
@@ -108,15 +108,15 @@ class Server:
         :param startTime: start time
         :param msg: message to broadcast
         """
+        # self.__serverUDPSocket.settimeout(10)
         while time.time() - startTime <= 10:
             try:
                 self.__serverUDPSocket.sendto(msg, (self.__serverName, self.__udp_port))
-                print("UDP broadcast")
                 time.sleep(1)
             except error:
                 err_msg = "Couldn't send broadcast msg on UDP connection"
-                if not self.print_error(err_msg):
-                    self.run()
+                # if not self.print_error(err_msg):
+                #     self.run()
         try:
             self.__serverUDPSocket.close()
         except error:
@@ -129,15 +129,14 @@ class Server:
             Waits for client's name, and add him to a group
         :param connectionSocket:
         """
-        connectionSocket.settimeout(5)
+        connectionSocket.settimeout(10)
         while time.time() - startTime <= 10:
             try:
-                client_name = connectionSocket.recv(1024)
+                client_name = connectionSocket.recv(2048)
                 client_name = client_name.decode('UTF-8')
-                print("Server got client name ", client_name)
                 self.add_client_to_group(client_name)
                 self.__connections.append((connectionSocket, client_name))
-                # exit()
+                exit()
             except error:
                 err_msg = "Error receiving data from client: " + client_address[0]
                 if not self.print_error(err_msg):
@@ -178,9 +177,7 @@ class Server:
         while time.time() - startTime <= 10:
             try:
                 # establish TCP connection with client
-                print("listen to clients")
                 connectionSocket, address = self.__serverTCPSocket.accept()
-                print("got tcp connection request from client : ", address)
                 # Creates new thread to for client
                 start_new_thread(self.record_client_name, (startTime, connectionSocket, address))
             except error:
@@ -217,12 +214,12 @@ class Server:
                 # TODO: recv is blocking, need to handle when the client doesnt send's team name
                 char = connSocket.recv(1)
                 char = char.decode('UTF-8')
-                print(char)
+                # print(char)
                 self.add_score_to_group(team_name)
             except error:
                 err_msg = "Error - in recv function TCP connection - line 198"
                 if not self.print_error(err_msg):
-                    print(Color.RED + "client: " + connSocket.getsockname() + " disconnected!" + Color.END_C)
+                    print(Color.RED + "client: " + connSocket.getsockname()[0] + " disconnected!" + Color.END_C)
                     try:
                         connSocket.close()
                     except error:
@@ -237,10 +234,10 @@ class Server:
         # creates the welcome message
         welcome_msg = "Welcome to Keyboard Spamming Battle Royale.\n" + "Group 1:\n==\n"
         welcome_msg += "Empty Group\n" if len(self.__groups[0]) == 0 \
-            else reduce(lambda acc, curr: acc + "\n" + curr[0], self.__groups[0][1:], self.__groups[0][0])
+            else reduce(lambda acc, curr: acc + curr, self.__groups[0][1:], self.__groups[0][0])
         welcome_msg += "Group 2:\n==\n"
         welcome_msg += "Empty Group\n" if len(self.__groups[1]) == 0 \
-            else reduce(lambda acc, curr: acc + "\n" + curr[0], self.__groups[1][1:], self.__groups[1][0])
+            else reduce(lambda acc, curr: acc + curr, self.__groups[1][1:], self.__groups[1][0])
         welcome_msg += "Start pressing keys on your keyboard as fast as you can!!"
 
         # sends all the clients the welcome message only once
@@ -257,9 +254,10 @@ class Server:
             start_new_thread(self.get_client_score, (con[0], con[1], startTime))
         
         # map(lambda con: start_new_thread(self.get_client_score, (con, startTime)), self.__connections)
-        while time.time() - startTime <= 10:
-            pass
-        print("heyyyy")
+        # while time.time() - startTime <= 10:
+        #     pass
+        time.sleep(10)
+
         # creates the summary message
         summary_message = Color.CYAN + Color.ITALIC + Color.BOLD + "Game over!\n"
         summary_message += "Group 1 typed in " + str(self.__counter_group_A) + " characters."
@@ -269,23 +267,26 @@ class Server:
         summary_message += Color.GREEN + Color.BOLD + "\n\nCongratulations to the winners:\n==\n" + Color.BR_PINK + Color.BOLD
         winner = 0 if self.__counter_group_A > self.__counter_group_B else 1
         summary_message += "Empty Group\n" if len(self.__groups[winner]) == 0 \
-            else reduce(lambda acc, curr: acc + "\n" + curr[0], self.__groups[winner][1:], self.__groups[winner][0])
+            else reduce(lambda acc, curr: acc + curr[0], self.__groups[winner][1:], self.__groups[winner][0])
         print(summary_message + Color.END_C)
         
         for con in self.__connections:
             try:
                 con[0].send(summary_message.encode('UTF-8'))
             except error:
-                print(Color.BR_RED + "Error- client: " + con[
-                    0].getsockname() + ", closed his TCP connection, couldn't send summary message" + Color.END_C)
-        
+                try:
+                    print(Color.BR_RED + "Error- client: " + con[
+                        0].getsockname() + ", closed his TCP connection, couldn't send summary message" + Color.END_C)
+                except:
+                    print(Color.BR_RED + "Error- client: closed his TCP connection, couldn't send summary message" + Color.END_C)
+                
         # close all TCP connections
         for con in self.__connections:
             try:
                 con[0].close()
             except error:
                 print(Color.BR_RED + "Error - error with closing TCP connection" + Color.END_C)
-
+                
         try:
             self.__serverTCPSocket.close()
         except error:

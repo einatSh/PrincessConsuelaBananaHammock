@@ -1,12 +1,12 @@
 # TODO: pynput may not work , look for something else
-# import msvcrt
+import msvcrt
+import sys
 from threading import Thread
 from _thread import start_new_thread
-# from pynput.keyboard import Listener
 from socket import *
 import struct
 import time
-import getch
+import threading
 from scapy.arch import get_if_addr
 from select import select
 import multiprocessing
@@ -25,16 +25,18 @@ class Client:
         self.__clientUDPSocket = socket(AF_INET, SOCK_DGRAM)
         self.__con_msg = "Client started"
         self.__err_count = 0
-        self.__get_char = False
+        self.__stop_streaming = False
+        self.__stop_streaming_lock = threading.Lock()
         # TODO: delete 2 line below
         self.__temp_port = 12000
         self.__udp_port = self.__temp_port
         # self.set_env()
+        self.__timout = 10
 
     def reset(self):
         self.__clientUDPSocket = socket(AF_INET, SOCK_DGRAM)
         self.__clientTCPSocket = socket(AF_INET, SOCK_STREAM)
-        self.__get_char = True
+        self.__stop_streaming = False
 
     def run(self):
         self.reset()
@@ -106,10 +108,12 @@ class Client:
         """
             Connect to the server, We leave this state when we successfully connect via tcp to server.
         """
+        
         while True:
             try:
                 self.__clientTCPSocket.connect((self.__destName, self.__serverPort))
                 # send team name to the server
+                
                 team = input(Color.YELLOW + "Please enter team name: " + Color.END_C)
                 msg = team + '\n'
                 self.__clientTCPSocket.send(msg.encode('UTF-8'))
@@ -119,19 +123,22 @@ class Client:
                 if not self.print_error(error_msg):
                     self.run()
 
+    # def kbhit(self):
+    #     dr,dw,de = select([sys.stdin], [], [], 0)
+    #     return dr is not []
+
     def keyboard_whisperer(self):
         """
             Collect data from keyboard
         """
         startTime = time.time()
-        while time.time() - startTime <= 5:
-            try:
-                key = getch.getche()
-                self.__clientTCPSocket.send(key.encode('UTF-8'))
-            except:
-                print("return")
-                return
-
+        while time.time() - startTime <= self.__timout:
+            if msvcrt.kbhit():
+                try:
+                    key = msvcrt.getche()
+                    self.__clientTCPSocket.send(key)
+                except:
+                    pass
 
     def game_mode(self):
         """
@@ -142,40 +149,39 @@ class Client:
         self.__clientTCPSocket.settimeout(8)
         start_flag = True
         stop_flag = False
-        while True:
+        startTime = time.time()
+
+        # set timeout for socket
+        self.__clientTCPSocket.settimeout(8)
+        start_flag = True
+        stop_flag = False
+        startTime = time.time()
+        while start_flag or time.time() - startTime <= self.__timout:
             try:
                 # collect data from network
                 serverData = self.__clientTCPSocket.recv(1024)
                 if not serverData.decode('UTF-8') == '':
                     print(Color.ITALIC + Color.BR_PINK + serverData.decode('UTF-8') + Color.END_C)
-                if start_flag:
-                    # after getting the welcome msg - start listening for keyboard strokes (only start once)
-                    # start_new_thread(self.keyboard_whisperer, ())
-                    thread = Thread(target=self.keyboard_whisperer, args=())
-                    thread.start()
-                    thread.join()
-                    # proc = multiprocessing.Process(target=self.keyboard_whisperer, args=())
-                    # proc.start()
-                    
-                    start_flag = False
+                    if start_flag:
+                        # after getting the welcome msg - start listening for keyboard strokes (only start once)
+                        start_new_thread(self.keyboard_whisperer, ())
+                        # thread: Thread = Thread(target=self.keyboard_whisperer, args=())
+                        # thread.start()
+                        # thread.join()
+                        startTime = time.time()
+                        start_flag = False
             except error:
-                self.__get_char = False
-                
                 error_msg = "Connection error...This wasn't the droid you're looking for!"
                 if not self.print_error(error_msg):
-                    # Terminate the process
-                    # proc.terminate()  # sends a SIGTERM
-                    self.run()
+                    self.end_game()
+        self.end_game()
+        
 
-    def on_release(self, key):
-        # print("Key released: {0}".format(key))
-        try:
-            if not str(key.char) == '':
-                self.__clientTCPSocket.send(str(key.char).encode('UTF-8'))
-        except AttributeError:
-            pass
-
-
+    def end_game(self):
+        self.__stop_streaming_lock.acquire()
+        self.__stop_streaming = True
+        self.__stop_streaming_lock.release()
+        self.run()
 class Color:
     RED = '\033[31m'
     GREEN = '\033[32m'
