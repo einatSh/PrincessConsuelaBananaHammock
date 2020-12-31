@@ -1,17 +1,22 @@
 # TODO: pynput may not work , look for something else
-import msvcrt
+# import msvcrt
 from threading import Thread
 from _thread import start_new_thread
-from pynput.keyboard import Listener
+# from pynput.keyboard import Listener
 from socket import *
 import struct
 import time
+import getch
+from scapy.arch import get_if_addr
+from select import select
+import multiprocessing
 
 
 class Client:
 
     def __init__(self):
-        self.__serverName = '127.0.0.1'
+        self.__hostName = '127.0.0.1'
+        self.__destName = ''
         self.__udp_port = 13117
         self.__serverPort = self.__udp_port
         # set tcp and udp sockets
@@ -20,13 +25,18 @@ class Client:
         self.__clientUDPSocket = socket(AF_INET, SOCK_DGRAM)
         self.__con_msg = "Client started"
         self.__err_count = 0
+        self.__get_char = False
+        # TODO: delete 2 line below
+        self.__temp_port = 12000
+        self.__udp_port = self.__temp_port
+        # self.set_env()
 
     def reset(self):
         self.__clientUDPSocket = socket(AF_INET, SOCK_DGRAM)
         self.__clientTCPSocket = socket(AF_INET, SOCK_STREAM)
+        self.__get_char = True
 
     def run(self):
-        # self.set_env()
         self.reset()
         self.looking_for_server()
         self.connect_to_server()
@@ -41,10 +51,12 @@ class Client:
             print(Color.YELLOW + "Please pick environment (dev/test):" + Color.END_C)
             env = input()
             if env == "dev":
-                self.__serverName = '172.1.0.24'
+                self.__hostName = get_if_addr('172.1.0/24')
+                # self.__hostName = '172.1.0/24'
                 break
             elif env == "test":
-                self.__serverName = '172.99.0.24'
+                self.__hostName = get_if_addr('172.99.0/24')
+                # self.__hostName = '172.99.0/24'
                 break
             else:
                 print(Color.BR_RED + "Wrong input dummy -_-" + Color.END_C)
@@ -56,7 +68,7 @@ class Client:
         :param error_msg: msg to be printed to the screen.
         :return: True while we have less than 5 errors counted, else return False.
         """
-        if self.__err_count < 5:
+        if self.__err_count < 3:
             if self.__err_count == 0:
                 print(Color.BR_RED + error_msg + Color.END_C)
             self.__err_count = self.__err_count + 1
@@ -73,18 +85,19 @@ class Client:
         """
         # bind udp socket to server address (name, port)
         self.__clientUDPSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-        self.__clientUDPSocket.bind((self.__serverName, self.__udp_port))
+        self.__clientUDPSocket.bind((self.__hostName, self.__udp_port))
 
         while True:
             try:
                 print(Color.CYAN + Color.BOLD + self.__con_msg + ", listening for offer requests..." + Color.END_C)
                 msg, serverAddress = self.__clientUDPSocket.recvfrom(2048)
-                # self.__serverName = serverAddress[0]
+                self.__destName = serverAddress[0]
                 self.__serverPort = struct.unpack('IbH', msg)[2]
-                print(Color.CYAN + Color.BOLD + "Received offer from from: " + Color.PINK + serverAddress[0]
+                
+                print(Color.CYAN + Color.BOLD + "Received offer from: " + Color.PINK + serverAddress[0]
                       + Color.CYAN + Color.BOLD + ", attempting to connect..." + Color.END_C)
                 break
-            except error:
+            except:
                 # if any connection error occurs
                 print(Color.BR_RED + "Error receiving offer from server. No worries mate, we'll try again!" + Color.END_C)
         self.__clientUDPSocket.close()
@@ -95,7 +108,7 @@ class Client:
         """
         while True:
             try:
-                self.__clientTCPSocket.connect((self.__serverName, self.__serverPort))
+                self.__clientTCPSocket.connect((self.__destName, self.__serverPort))
                 # send team name to the server
                 team = input(Color.YELLOW + "Please enter team name: " + Color.END_C)
                 msg = team + '\n'
@@ -110,12 +123,15 @@ class Client:
         """
             Collect data from keyboard
         """
-        with Listener(on_release=self.on_release) as listener:
-            def time_out(period_sec: int):
-                time.sleep(period_sec)  # Listen to keyboard for period_sec seconds
-                listener.stop()
-            Thread(target=time_out, args=(6,)).start()
-            listener.join()
+        startTime = time.time()
+        while time.time() - startTime <= 5:
+            try:
+                key = getch.getche()
+                self.__clientTCPSocket.send(key.encode('UTF-8'))
+            except:
+                print("return")
+                return
+
 
     def game_mode(self):
         """
@@ -123,27 +139,33 @@ class Client:
             Collect data from the network and print it on screen
         """
         # set timeout for socket
-        self.__clientTCPSocket.settimeout(20)
+        self.__clientTCPSocket.settimeout(8)
         start_flag = True
+        stop_flag = False
         while True:
             try:
                 # collect data from network
                 serverData = self.__clientTCPSocket.recv(1024)
-                print(Color.ITALIC + Color.BR_PINK + serverData.decode('UTF-8') + Color.END_C)
+                if not serverData.decode('UTF-8') == '':
+                    print(Color.ITALIC + Color.BR_PINK + serverData.decode('UTF-8') + Color.END_C)
                 if start_flag:
                     # after getting the welcome msg - start listening for keyboard strokes (only start once)
-                    start_new_thread(self.keyboard_whisperer, ())
+                    # start_new_thread(self.keyboard_whisperer, ())
+                    thread = Thread(target=self.keyboard_whisperer, args=())
+                    thread.start()
+                    thread.join()
+                    # proc = multiprocessing.Process(target=self.keyboard_whisperer, args=())
+                    # proc.start()
+                    
                     start_flag = False
             except error:
+                self.__get_char = False
+                
                 error_msg = "Connection error...This wasn't the droid you're looking for!"
                 if not self.print_error(error_msg):
+                    # Terminate the process
+                    # proc.terminate()  # sends a SIGTERM
                     self.run()
-
-        # collect data from keyboard
-        # TODO: char = getch.getch() works on linux
-        # char = getch.getch()
-        # char = msvcrt.getche()
-        # print(char)
 
     def on_release(self, key):
         # print("Key released: {0}".format(key))
